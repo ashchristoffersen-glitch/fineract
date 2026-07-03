@@ -55,6 +55,7 @@ import org.apache.fineract.portfolio.common.domain.DaysInYearType;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,6 +83,11 @@ class DefaultScheduledDateGeneratorTest {
     void setUp() {
         FineractPlatformTenant tenant = new FineractPlatformTenant(1L, "default", "Default", "UTC", null);
         ThreadLocalContextUtil.setTenant(tenant);
+    }
+
+    @AfterEach
+    void cleanUp() {
+        ThreadLocalContextUtil.reset();
     }
 
     @AfterAll
@@ -510,12 +516,15 @@ class DefaultScheduledDateGeneratorTest {
 
     @Test
     void generateNextRepaymentDate_monthEnd_adjustsForShorterMonth() {
-        // Seed date is Jan 31; next month (Feb) has only 28/29 days
-        LocalDate start = LocalDate.of(2024, 1, 31);
-        LoanApplicationTerms terms = buildTermsWithSeedDate(MONTHS, 1, 4, start, start);
+        // Disbursement on Jan 1 but seed date is Jan 31 (month-end)
+        // This ensures the seed date parameter actually controls the adjustment
+        LocalDate disbursement = LocalDate.of(2024, 1, 1);
+        LocalDate seedDate = LocalDate.of(2024, 1, 31);
+        LoanApplicationTerms terms = buildTermsWithSeedDate(MONTHS, 1, 4, disbursement, seedDate);
 
-        LocalDate result = underTest.generateNextRepaymentDate(start, terms, false);
-        // Feb 2024 is a leap year with 29 days; seed day 31 should cap to 29
+        // Generate next from Jan 31; Feb 2024 is a leap year with 29 days
+        LocalDate result = underTest.generateNextRepaymentDate(LocalDate.of(2024, 1, 31), terms, false);
+        // seed day 31 > Feb max 29, so adjustDate clamps to 29
         assertThat(result).isEqualTo(LocalDate.of(2024, 2, 29));
     }
 
@@ -633,16 +642,15 @@ class DefaultScheduledDateGeneratorTest {
         ApplicationCurrency dollarCurrency = new ApplicationCurrency("USD", "US Dollar", 2, 0, "currency.USD", "$");
         Money principalAmount = Money.of(fromApplicationCurrency(dollarCurrency), BigDecimal.valueOf(1000));
 
-        // Use repaymentsStartingFromDate = null, calculatedRepaymentsStartingFromDate = null
-        // The seed date is derived from disbursement date in this context
+        // Pass seedDate as repaymentsStartingFromDate so LoanApplicationTerms uses it as the seed date
         LocalDate submittedOnDate = disbursementDate;
         return LoanApplicationTerms.assembleFrom(dollarCurrency.toData(), 1, frequency, numberOfRepayments, repaidEvery, frequency, null,
                 INVALID, EQUAL_PRINCIPAL, FLAT, ZERO, frequency, ZERO, SAME_AS_REPAYMENT_PERIOD, false, principalAmount, disbursementDate,
-                null, null, null, null, null, null, null, Money.of(fromApplicationCurrency(dollarCurrency), ZERO), false, null, emptyList(),
-                BigDecimal.valueOf(36_000L), null, DaysInMonthType.ACTUAL, DaysInYearType.ACTUAL, false, null, null, null, null, null, ZERO,
-                null, NONE, null, ZERO, emptyList(), true, 0, false, createAllDaysWorkingHolidayDTO(), false, false, false, null, false,
-                false, null, false, DISBURSEMENT_DATE, submittedOnDate, CUMULATIVE, LoanScheduleProcessingType.HORIZONTAL, null, false,
-                null, null, false, null, false, null, null, null, false, null, null, null, false, false);
+                seedDate, null, null, null, null, null, null, Money.of(fromApplicationCurrency(dollarCurrency), ZERO), false, null,
+                emptyList(), BigDecimal.valueOf(36_000L), null, DaysInMonthType.ACTUAL, DaysInYearType.ACTUAL, false, null, null, null, null,
+                null, ZERO, null, NONE, null, ZERO, emptyList(), true, 0, false, createAllDaysWorkingHolidayDTO(), false, false, false, null,
+                false, false, null, false, DISBURSEMENT_DATE, submittedOnDate, CUMULATIVE, LoanScheduleProcessingType.HORIZONTAL, null,
+                false, null, null, false, null, false, null, null, null, false, null, null, null, false, false);
     }
 
     private HolidayDetailDTO createAllDaysWorkingHolidayDTO() {
