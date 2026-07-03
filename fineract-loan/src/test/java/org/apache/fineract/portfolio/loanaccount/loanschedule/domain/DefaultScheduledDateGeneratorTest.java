@@ -516,16 +516,31 @@ class DefaultScheduledDateGeneratorTest {
 
     @Test
     void generateNextRepaymentDate_monthEnd_adjustsForShorterMonth() {
-        // Disbursement on Jan 1 but seed date is Jan 31 (month-end)
-        // This ensures the seed date parameter actually controls the adjustment
+        // Disbursement on Jan 1 but seed date is Jan 31 (month-end).
+        // The seed date (not the disbursement date) must drive the month-end adjustment.
         LocalDate disbursement = LocalDate.of(2024, 1, 1);
         LocalDate seedDate = LocalDate.of(2024, 1, 31);
         LoanApplicationTerms terms = buildTermsWithSeedDate(MONTHS, 1, 4, disbursement, seedDate);
 
+        // Verify the seed date routed correctly through repaymentsStartingFromDate
+        assertThat(terms.getSeedDate()).as("seedDate must equal the explicit seed, not the disbursement date").isEqualTo(seedDate);
+        assertThat(terms.getSeedDate()).isNotEqualTo(disbursement);
+
         // Generate next from Jan 31; Feb 2024 is a leap year with 29 days
         LocalDate result = underTest.generateNextRepaymentDate(LocalDate.of(2024, 1, 31), terms, false);
         // seed day 31 > Feb max 29, so adjustDate clamps to 29
-        assertThat(result).isEqualTo(LocalDate.of(2024, 2, 29));
+        assertThat(result).as("month-end seed (day 31) should clamp to Feb's max (29)").isEqualTo(LocalDate.of(2024, 2, 29));
+
+        // Contrast: generate a second period from Feb 29 to show the seed continues to matter.
+        // With seed day 31: adjustDate clamps Mar 29 → Mar 31 (seed 31 > 28, date 29 >= 28).
+        // Without seed (day 1): adjustDate is a no-op → stays Mar 29.
+        LocalDate secondWithSeed = underTest.generateNextRepaymentDate(result, terms, false);
+        assertThat(secondWithSeed).as("seed day 31 adjusts Mar to 31").isEqualTo(LocalDate.of(2024, 3, 31));
+
+        LoanApplicationTerms termsWithoutSeed = buildTerms(MONTHS, 1, 4, disbursement, null, null);
+        assertThat(termsWithoutSeed.getSeedDate().getDayOfMonth()).as("default seed uses disbursement day").isEqualTo(1);
+        LocalDate secondWithoutSeed = underTest.generateNextRepaymentDate(result, termsWithoutSeed, false);
+        assertThat(secondWithoutSeed).as("without month-end seed, second period differs").isNotEqualTo(secondWithSeed);
     }
 
     // ========== generateRepaymentPeriods with fixedLength ==========
